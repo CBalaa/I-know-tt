@@ -1,16 +1,12 @@
-# `-mcpu=tt-bh`: a baby RISCV scheduling model, and how accurate it is
+# `-mcpu=tt-bh`: a Baby-RISC-V scheduling model and its limits
 
-**Finding.** There is now a real scheduling model for the Tensix baby RISCV in this
-repository, named `tt-bh` after the tt-metal toolchain's own CPU name for the core.
-It analyses every `brisc`/`ncrisc`/`trisc` kernel we have with **zero instructions
-silently dropped** (the Rocket workaround dropped 3 and 8).
-
-On `add_2_integers_in_riscv` it predicts **109 cycles** for the whole kernel against a
-measured **910** — an 8.3x gap that is *not* a model defect. On the one segment of
-that kernel that contains no waiting, it predicts **35** against a measured **39**.
+**Finding.** The `tt-bh` scheduling model adds a Blackhole Baby-RISC-V processor to
+LLVM's RISC-V target. It analyses the available `brisc`/`ncrisc`/`trisc` assembly
+without silently dropping the scalar instructions covered by this model (the Rocket
+workaround dropped 3 and 8 in the tested BRISC/NCRISC inputs).
 
 Model: `tools/llvm-mca-tensix/` in the consuming repo (`RISCVSchedTensixBaby.td` +
-a two-hunk registration patch + `apply.sh`). Harness and full numbers:
+a two-hunk registration patch + `apply.sh`). Probe details:
 `test/mca_vs_measured/README.md`. Observed on Blackhole p150a, tt-metal `4f9fa9e0`,
 `llvm-project` `34152bb7d2d`. **Measured** unless marked otherwise.
 
@@ -41,56 +37,6 @@ dependent `add` 1/op and dependent `mul` 2/op against the documented latencies. 
 **wrong about back-to-back fences** — it charges 9 each, where the measurement says 4
 each after the first, so `n` adjacent fences are over-predicted by `5*(n-1)`.
 
-## The accuracy result
-
-`add_2_integers_in_riscv` on BRISC. The total comes for free: the firmware already
-brackets every kernel run with a `BRISC-KERNEL` zone, so no kernel edit is needed —
-run with `TT_METAL_DEVICE_PROFILER=1` and subtract the 14-cycle marker window.
-
-| | cycles |
-| --- | --- |
-| measured, C++ JIT path | **910** |
-| measured, hand-written `.S` path | 854 |
-| `llvm-mca -mcpu=tt-bh`, whole kernel, model defaults | **109** |
-| `llvm-mca -mcpu=tt-bh`, whole kernel, per-address load latencies by hand | 279 |
-
-The gap is structural. Instrumenting the kernel with four zones puts the 910 here:
-
-| segment | cycles | share |
-| --- | --- | --- |
-| `noc_async_read` x2 + `read_barrier` (issue **and** unbounded wait) | 520 | 47.6% |
-| `noc_async_write` + `write_barrier` (issue **and** unbounded wait) | 350 | 32.0% |
-| the actual integer add | 39 | 3.6% |
-| prologue, address generation, marker overhead | 184 | 16.8% |
-
-**~80% of the kernel is NoC command issue plus waiting for the NoC.** `llvm-mca`
-analyses one basic block: it models each of the five poll loops as running exactly
-once, it has no notion of a NoC round trip, and it does not model the store queue at
-all — which is the entire point of `ckernel::load_blocking`. No better scheduling
-model can recover any of that.
-
-## Where the comparison is actually meaningful
-
-The one wait-free segment is six instructions: two L1 loads, an `add`, a store, the
-`load_blocking` load, and an `and`.
-
-`llvm-mca` says **9**. The hardware says **39**. The model is not wrong about the
-instructions; it is wrong about the *loads*. It charges the documented minimum, 2
-cycles (L1 with an L0 data-cache hit) — but this segment sits immediately after a
-`fence`, and a `fence` flushes the whole 64-byte L0 data cache
-([`../isa/l0-data-cache-and-fence.md`](../isa/l0-data-cache-and-fence.md)). All three
-loads are therefore L0 *misses* at >= 8.
-
-Annotating just the first two loads with `# LLVM-MCA-LATENCY 8` gets **35** against
-the measured 39.
-
-⚠️ **Read that 11% as suggestive, not as proof.** `llvm-mca` reaches 35 by charging
-load latency; the hardware is most likely charging a store-queue drain on the
-`load_blocking` load. Two different mechanisms landing near the same number is a
-coincidence, not a validation. The robust conclusion is the weaker one: *with
-per-address load latencies supplied by hand, the model is in the right neighbourhood
-for wait-free code.*
-
 ## Gaps that matter
 
 1. **Load latency is keyed on the opcode, not the address.** The ISA documents 2
@@ -114,9 +60,7 @@ is no L0 data cache so every L1 load is >= 8, and `fence` is a no-op.
 
 ## The rule to carry
 
-> `llvm-mca -mcpu=tt-bh` is a **structure** tool for Tensix kernels, not a cycle
-> predictor. Trust it for: A/B comparison of two instruction sequences under the same
-> model, port/issue pressure, and dependency stalls in straight-line code. Do not
-> trust it for: any kernel whose time is dominated by NoC waits (which is most
-> data-movement kernels), anything whose load latency you have not pinned down, or
-> absolute cycle counts.
+> `llvm-mca -mcpu=tt-bh` schedules a static assembly instruction sequence using the
+> supplied model. Its output is not a measurement or an end-to-end kernel runtime:
+> it does not execute branch paths or polling loops dynamically and cannot account
+> for address-dependent memory behavior or NoC completion waits.

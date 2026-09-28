@@ -91,7 +91,7 @@ otherwise. Measured vs assumed is marked inside each note.
 | Note | What it answers |
 | --- | --- |
 | [`analysing-tensix-asm-with-llvm-mca.md`](llvm-mca/analysing-tensix-asm-with-llvm-mca.md) | How to run `llvm-mca` over Tensix kernel `.S`: the `-mcpu=tt-bh` recipe, the RISC-V-only build, the `.ttinsn`/`TTREPLAY` parse gap, and what the numbers do *not* mean |
-| [`tt-bh-model-accuracy.md`](llvm-mca/tt-bh-model-accuracy.md) | The `-mcpu=tt-bh` scheduling model itself, where every latency comes from, its four known gaps, and the measured accuracy: 109 predicted vs 910 actual on `add_2_integers_in_riscv`, and why that gap is structural rather than a model defect |
+| [`tt-bh-model-accuracy.md`](llvm-mca/tt-bh-model-accuracy.md) | The `-mcpu=tt-bh` scheduling model, where instruction latencies come from, and the limits of its static instruction-sequence analysis |
 | [`how-llvm-mca-simulates.md`](llvm-mca/how-llvm-mca-simulates.md) | What the simulator actually is: a cycle-by-cycle *timing* state machine with no data values, no addresses and no PC, whose entire hardware description is TableGen — and why that is the root cause of the model's accuracy ceiling |
 
 ### `tt-rpm/`

@@ -65,8 +65,8 @@ cycles on an otherwise idle device; this is an empirical route/DRAM/NoC service
 distribution, not an architectural fixed constant. The whole kernel measured
 910 cycles (JIT path) or 854 cycles (hand-written assembly path).
 
-Sources: `test/mca_vs_measured/README.md` and
-`thirdparty/I-know-tt/llvm-mca/tt-bh-model-accuracy.md`.
+Sources: `test/mca_vs_measured/README.md` and the profiler records described
+below.
 
 ## What is measured versus what is currently calibrated
 

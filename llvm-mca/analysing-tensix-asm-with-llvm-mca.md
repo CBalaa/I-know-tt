@@ -128,8 +128,8 @@ optimistic bias.
   address/control overhead, *not* Tensix throughput.
 - **The model covers the core, not the memory system.** Load latency is keyed on the
   opcode, so an MMIO `lw` is charged the L1/local-RAM 2 cycles. See
-  [`tt-bh-model-accuracy.md`](tt-bh-model-accuracy.md) for the measured size of that
-  error and for `# LLVM-MCA-LATENCY` as the workaround.
+  [`tt-bh-model-accuracy.md`](tt-bh-model-accuracy.md) for the model's limits
+  and for `# LLVM-MCA-LATENCY` as the workaround.
 - **Skipping `fence` is no longer necessary, and the model charges it 9 cycles** —
   the measured cost on p150a; see
   [`../isa/l0-data-cache-and-fence.md`](../isa/l0-data-cache-and-fence.md).
