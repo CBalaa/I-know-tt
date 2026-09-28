@@ -4,8 +4,9 @@
 and `tiles_acked` (`pages_acked`), are **not** fields of the CB's L1 control block and **not**
 in `LocalCBInterface`. They are stored in the **NOC overlay ("stream") functional register
 file** — "don't-care functional registers" that the overlay hardware would own if the NOC
-overlay were enabled. `cb_reserve_back` / `cb_wait_front` read them with `reg_read()`, and
-`cb_push_back` / `cb_pop_front` update them with a plain store.
+overlay were enabled. Dataflow-RISC `cb_reserve_back` / `cb_wait_front` read
+them with `reg_read()`, and its `cb_push_back` / `cb_pop_front` update them
+with RISC-V stores. Compute-RISC updates can instead use Tensix `STOREREG`.
 
 Observed on tt-metal `4f9fa9e0` (`v0.80.0-dev20260922~53`), arch **blackhole** (p150a).
 **Read from source, not measured on device** — see "What is assumed" at the bottom.
@@ -99,8 +100,11 @@ is only advanced by `cb_push_back`. The producer reserves, writes the pages into
 Compute RISCVs (TRISC) go through `tt_metal/hw/inc/api/compute/cb_api.h`, which maps
 `cb_reserve_back(cbid, ntiles)` → `PACK((llk_wait_for_free_tiles(cbid, ntiles)))`
 (`llk_io_pack.h:20-42`) and `cb_wait_front` → `UNPACK((llk_wait_tiles(...)))`
-(`llk_io_unpack.h:18-30`). Same poll loop, but the counters are read/written with Tensix
-instructions rather than RISC-V loads/stores.
+(`llk_io_unpack.h:18-30`). The generated wait loops poll the overlay counters
+with RISC-V `lw` (for example, `mm_trisc0_unpack.S:257-263` and
+`mm_trisc2_pack.S:262-265`). Some counter updates use Tensix `STOREREG` after
+`STALLWAIT` (`llk_io_unpack.h:44-47`, `llk_io_pack.h:60-67`), while other
+updates use RISC-V stores.
 
 ## Four details that are easy to get wrong
 

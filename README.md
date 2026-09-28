@@ -62,6 +62,7 @@ otherwise. Measured vs assumed is marked inside each note.
 | [`l0-data-cache-and-fence.md`](isa/l0-data-cache-and-fence.md) | What a baby RISCV `fence` actually does (it flushes the 64 B **L0 data cache**), why the cache is non-coherent, why Wormhole treats `fence` as a no-op, and why "L1 cache" in tt-metal's comment is a misnomer |
 | [`add2-noc-barrier-semantics.md`](isa/add2-noc-barrier-semantics.md) | Blackhole `add_2_integers_in_riscv` NoC command-buffer addresses, read-response/write-ACK barrier events, and measured service-time anchors |
 | [`baby-risc-timing-model.md`](isa/baby-risc-timing-model.md) | Persistent timing-layer state and event boundaries used to predict the checked-in `add_2_integers_in_riscv` kernel |
+| [`matmul-asm-timing-boundaries.md`](isa/matmul-asm-timing-boundaries.md) | Timing effects hidden behind RISC MMIO and Tensix instruction pushes in the generated `matmul_multi_core` assembly |
 
 ### `tt-metal/`
 
