@@ -63,6 +63,9 @@ otherwise. Measured vs assumed is marked inside each note.
 | [`add2-noc-barrier-semantics.md`](isa/add2-noc-barrier-semantics.md) | Blackhole `add_2_integers_in_riscv` NoC command-buffer addresses, read-response/write-ACK barrier events, and measured service-time anchors |
 | [`baby-risc-timing-model.md`](isa/baby-risc-timing-model.md) | Persistent timing-layer state and event boundaries used to predict the checked-in `add_2_integers_in_riscv` kernel |
 | [`matmul-asm-timing-boundaries.md`](isa/matmul-asm-timing-boundaries.md) | Timing effects hidden behind RISC MMIO and Tensix instruction pushes in the generated `matmul_multi_core` assembly |
+| [`blackhole-tensix-push-backpressure.md`](isa/blackhole-tensix-push-backpressure.md) | Documented FIFO rules and p150a measurements that separate RISC push timing, delayed MMIO observations, and intermediate FIFO status |
+| [`blackhole-mop-template1-count-overrides.md`](isa/blackhole-mop-template1-count-overrides.md) | Blackhole template-1 MOP count override bits and their split across tt-metal macro arguments |
+| [`tti-mop-timing-boundaries.md`](isa/tti-mop-timing-boundaries.md) | Separates `TTI_MOP` push, MOP expansion, Replay expansion, and coprocessor completion timing |
 
 ### `tt-metal/`
 
@@ -76,6 +79,8 @@ otherwise. Measured vs assumed is marked inside each note.
 | [`noc-trace-stale-profiler-buffers.md`](tt-metal/noc-trace-stale-profiler-buffers.md) | NoC traces containing hour-stale events from cores you never ran |
 | [`cb-credit-counters-in-noc-stream-regs.md`](tt-metal/cb-credit-counters-in-noc-stream-regs.md) | `cb_reserve_back` end to end: where the CB credit counters really live (NOC-overlay stream registers, **not** L1), the 16-bit wrap contract, and who zeroes them between kernel runs |
 | [`launching-asm-kernels.md`](tt-metal/launching-asm-kernels.md) | Running a hand-written `.S` as a tt-metal kernel via `CreateKernelFromString` + inline-asm `.include`; where the kernel source is spliced in, and the four things that break (LTO dropping asm-referenced globals, LLK per-TU `static` state, `R_RISCV_32`-into-text rejected at load, `.L<n>` label collisions); plus why editing a `.S` does **not** invalidate the JIT cache, and why `DPRINT` never survives into a spliced `.S` by default |
+| [`blackhole-instruction-gathering.md`](tt-metal/blackhole-instruction-gathering.md) | Why tt-metal disables four-way TRISC `.ttinsn` gathering by default, the opt-in build flag, and p150a warm-I-cache measurements |
+| [`cb-visibility-profiler-probe.md`](tt-metal/cb-visibility-profiler-probe.md) | How the standalone matmul CB probe records reader push and writer pop visibility events and converts them to predictor input |
 
 ### `tt-npe/`
 
@@ -94,6 +99,8 @@ otherwise. Measured vs assumed is marked inside each note.
 | [`analysing-tensix-asm-with-llvm-mca.md`](llvm-mca/analysing-tensix-asm-with-llvm-mca.md) | How to run `llvm-mca` over Tensix kernel `.S`: the `-mcpu=tt-bh` recipe, the RISC-V-only build, the `.ttinsn`/`TTREPLAY` parse gap, and what the numbers do *not* mean |
 | [`tt-bh-model-accuracy.md`](llvm-mca/tt-bh-model-accuracy.md) | The `-mcpu=tt-bh` scheduling model, where instruction latencies come from, and the limits of its static instruction-sequence analysis |
 | [`how-llvm-mca-simulates.md`](llvm-mca/how-llvm-mca-simulates.md) | What the simulator actually is: a cycle-by-cycle *timing* state machine with no data values, no addresses and no PC, whose entire hardware description is TableGen — and why that is the root cause of the model's accuracy ceiling |
+| [`trisc-matmul-single-core-model.md`](llvm-mca/trisc-matmul-single-core-model.md) | Event-driven LLVM-MCA design for the three TRISC kernels in `matmul_single_core`, including CB inputs, instruction FIFOs, MOP/Replay, Wait Gates, Dst hazards, and calibrated Backend timing |
+| [`trisc-mca-driver-first-result.md`](llvm-mca/trisc-mca-driver-first-result.md) | First generated-assembly driver result: dynamic scalar/MCA counts, backend expansion counts, and the limits of the provisional MVMUL envelope |
 
 ### `tt-rpm/`
 

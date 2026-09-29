@@ -130,6 +130,41 @@ consumer reads on the next cycle with zero stall — which is exactly why a
 dependent `add` chain measures 1 cycle/op and a dependent `mul` chain (latency 2)
 measures 2.
 
+## Why "who + when" is sufficient: subscription, not lookup
+
+A read never looks a value up. It *subscribes* to its producer and is later
+*notified* with a countdown, which is why a `CyclesLeft` integer is enough:
+
+* `RegisterFile::addRegisterRead()` calls `collectWrites()` to find the pending
+  writers, then for each one calls `WS.addUser(..., &RS, ReadAdvance)` -- it hands
+  the producer a **pointer to the `ReadState`**. No value changes hands in that
+  handshake.
+* When the producer issues, `WriteState::onInstructionIssued()` pushes
+  `max(0, latency - ReadAdvance)` to every subscriber through
+  `ReadState::writeStartEvent()`.
+
+Two details confirm only *time* is being conveyed:
+
+1. **`ReadState::CyclesLeft` starts at `UNKNOWN_CYCLES`.**  A read can subscribe
+   before its producer has even issued, so `DependentWrites` is a counter: the
+   read becomes `IsReady` only once every dependent producer has reported, and it
+   keeps `max(TotalCycles)`.  There is no `assert` that could fire for "value not
+   yet known", but there is one for `CyclesLeft == UNKNOWN_CYCLES`.  A *value*
+   cannot be pending; a *wait time* can.
+2. **Register renaming is what makes the pair sufficient.**  `RegisterFile` keeps
+   `RegisterMappings[RegID] = {WriteRef, RegisterRenamingInfo}` and honours
+   `RenameAs`, so a read subscribes to the write that was current when the read
+   was added rather than to "whatever writes `a5` last" (`WriteRef::PRFID` is the
+   physical register).  That removes the false, name-induced dependencies; what
+   is left is true data dependence, and the timing of true data dependence is
+   fully determined by when the producer writes.  Nothing needs to know *what* it
+   wrote.
+
+This is also why `-mcpu=tt-bh` reports about 1.3 cycles per instruction on the
+unfolded spin trace: renaming lets the poll iterations overlap, because inside
+MCA they have no dependency on one another at all.  On the device the branch
+creates one.
+
 ## The hardware description is 100% TableGen
 
 ```console
@@ -187,7 +222,7 @@ assert(SM.isOutOfOrder() &&
 | Cache hit/miss | no — needs an **address** | ❌ no addresses exist |
 | Store-to-load forwarding | no — needs a **value** | ❌ no values exist |
 | Instruction fetch / I-cache / decode | no — needs a **PC** | ❌ no PC; documented as unmodelled |
-| Branch prediction, misprediction | no — needs **history** | ❌ all control flow is treated as perfectly predicted; both paths of a branch are simply scheduled |
+| Branch prediction, misprediction | no — needs **history** | ❌ there is no branch concept at all: `grep -ri branch llvm/lib/MCA/ llvm/include/llvm/MCA/` returns **0 hits**. A branch is an opcode occupying a resource; the direction of an input sequence is not a question the model can represent |
 | Random flushes / coherence events | no — probabilistic | ❌ |
 
 **The rule of thumb: if a mechanism can be described purely as "X is busy until

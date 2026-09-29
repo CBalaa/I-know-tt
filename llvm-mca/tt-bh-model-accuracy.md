@@ -64,3 +64,37 @@ is no L0 data cache so every L1 load is >= 8, and `fence` is a no-op.
 > supplied model. Its output is not a measurement or an end-to-end kernel runtime:
 > it does not execute branch paths or polling loops dynamically and cannot account
 > for address-dependent memory behavior or NoC completion waits.
+
+### Why the FIFO / Tensix backend cannot be added to this model
+
+There are three separate reasons, and only the first is a scope choice:
+
+1. **Declared scope.** `RISCVSchedTensixBaby.td` states it models the scalar
+   pipeline of RISCV B / T0 / T1 / NC only and does not model the Tensix
+   coprocessor (the `.ttinsn` stream). `TensixBabyModel` declares exactly three
+   resources: `EX1` (`BufferSize = 0`, a dispatch hazard), `EX2` (pipelined,
+   mul/FP) and the LSU (pipelined).
+2. **No behaviour hook was installed.** The registration patch
+   (`tools/llvm-mca-tensix/0001-register-tt-bh.patch`) is two hunks: include the
+   `.td`, register the `tt-bh` processor. It adds no `CustomBehaviour`. Stock
+   LLVM's only RISCV custom behaviour is RVV-only (`RISCVCustomBehaviour.cpp` is
+   entirely `LMUL`/`SEW`/`VXMemOpInfo`), so there is no place a CB or FIFO hazard
+   is being handled today.
+3. **The format cannot express it.** TableGen `SchedWrite`/`WriteRes` keys on the
+   *opcode*, not the address -- the `.td` says so itself in two `[GAP]` comments.
+   But the push mechanism in `PushTensixInstruction.md` is address-driven
+   (`INSTRN_BUF_BASE` `0xFFE4_0000` -> T0, `0xFFE5_0000` -> T1, `0xFFE6_0000` ->
+   T2) *and* state-driven: pushing into a full FIFO stalls the RISCV until space
+   frees, and the 32/28 acceptance rule plus the non-additive downstream FIFO
+   capacity depend on MOP/Replay expansion happening at runtime. A static
+   per-instruction resource declaration cannot represent a stall caused by
+   downstream occupancy.
+
+So `.ttinsn` never even reaches the model layer -- the tools README classifies it
+as *a parse gap in stock LLVM, not a model gap* -- and a `sw` to
+`INSTRN_BUF_BASE` is lowered to `WriteRes<WriteSTW>` with `Latency = 2`,
+`ReleaseAtCycles = [1, 1]`, i.e. it retires two cycles after issue. The ISA says
+the write-request is only *processed* once it lands in the frontend FIFO, and
+everything downstream of that (MOP expansion, Replay, Wait Gate, backend
+completion) is outside the model. Do not try to close this in the `.td`; it
+requires the streaming MCA driver described in `trisc-matmul-single-core-model.md`.
