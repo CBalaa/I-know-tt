@@ -66,6 +66,7 @@ otherwise. Measured vs assumed is marked inside each note.
 | [`blackhole-tensix-push-backpressure.md`](isa/blackhole-tensix-push-backpressure.md) | Documented FIFO rules and p150a measurements that separate RISC push timing, delayed MMIO observations, and intermediate FIFO status |
 | [`blackhole-mop-template1-count-overrides.md`](isa/blackhole-mop-template1-count-overrides.md) | Blackhole template-1 MOP count override bits and their split across tt-metal macro arguments |
 | [`tti-mop-timing-boundaries.md`](isa/tti-mop-timing-boundaries.md) | Separates `TTI_MOP` push, MOP expansion, Replay expansion, and coprocessor completion timing |
+| [`trisc-inter-thread-sync-in-generated-asm.md`](isa/trisc-inter-thread-sync-in-generated-asm.md) | How UNPACK/MATH/PACK express their async contract in the generated `matmul_single_core` assembly: semaphore addresses, `SEMWAIT`/`STALLWAIT` decoding, Src bank and Dst half ownership |
 
 ### `tt-metal/`
 
