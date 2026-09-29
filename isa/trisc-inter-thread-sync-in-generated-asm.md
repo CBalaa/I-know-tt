@@ -156,7 +156,7 @@ all of them visible in the `.S`:
 iterations ago, and "fewer than 2 in flight" is exactly the condition that the
 intervening one has been consumed.
 
-## SrcA/SrcB ownership is not a pushed instruction
+## The SrcA/SrcB *release* is not a pushed instruction
 
 `TTREPLAY 16,16,0,1` (`mm_trisc1_math.S:121`) records the 16 `MVMUL` words that
 follow it; the release of SrcA is **inside the MOP template**, not a separate
@@ -165,6 +165,62 @@ push: `MopCfg[3] = end_op0 = 0x3740000f` (`SETRWC CLR_A, SET_ABD_F`, written at
 (`REPLAY(16,16,0,0)`). The explicit `SETRWC(CLR_B)` at `:239` comes from
 `llk_math_matmul.h:773`. So a `.ttinsn` census of the math stream sees one MOP
 per K step, not the 64 MVMULs or the two bank releases it produces.
+
+## SrcA/SrcB: the handshake is a bank-ownership bit, and the wait is in `MVMUL`
+
+There is no instruction anywhere in the math stream that says "wait for the
+unpacker". The wait is a property of the *consuming* instruction — `MVMUL`
+evaluates this at the Wait Gate (`MVMUL.md`):
+
+```c
+while (SrcA[MatrixUnit.SrcABank].AllowedClient != MatrixUnit
+    || SrcB[MatrixUnit.SrcBBank].AllowedClient != MatrixUnit) wait;
+```
+
+The producer sets that bit as the last action of its *own* instruction.
+`UNPACR`'s `SetDatValid` operand (`llk_unpack_AB_matmul.h:386`) is bit 6 of the
+`UNPACR` word — the field `UNPACR_Regular.md` calls `FlipSrc`, named
+`OvrdThreadId` at bit 7 and `SetDatValid` at bit 6 in `ckernel_ops.h:916`:
+
+```c
+if (FlipSrc) {  // UNPACR, after all datums have been written
+  SrcA[Unpacker.SrcBank].AllowedClient = SrcClient::MatrixUnit;
+  Unpacker.SrcBank ^= 1;                        // ping-pong: the two banks are
+  Unpacker.SrcRow[CurrentThread] = SrcRowBase;  // double-buffered
+}
+```
+
+Both directions are implicit and both are called out as "rarely needed" upstream:
+writing, the unpacker spins on `AllowedClient != Unpackers` (Blackhole C5/C6,
+`p_stall::SRCA_CLR`/`SRCB_CLR`); reading, the matrix unit spins on
+`AllowedClient != MatrixUnit` (C7/C8, `p_stall::SRCA_VLD`/`SRCB_VLD`). In the
+generated asm the *only* trace of the acquire is bit 6 of the unpack word:
+
+| Site | Word | Meaning |
+| --- | --- | --- |
+| `mm_trisc0_unpack.S:283`, `:366` | `0x428000c1` | live `UNPACR SrcB` (= in0/inA), `SetDatValid=1`, `Last=1` |
+| `mm_trisc0_unpack.S:160`, `:178` | `0x420000c1` | recorded `UNPACR SrcA` (= in1/inB), same flags, replayed once per iteration |
+
+The matching release is deliberately deferred to the end of the MVMUL sequence so
+that all 16 `MVMUL`s read one pair of banks: every MVMUL word is
+`0x2600_0000 | (addr_mode << 14)` with `clear_dvalid = 0` (`ckernel_ops.h:346`),
+and the banks go back via `SETRWC CLR_A` (`MopCfg[3]`, `:191`) and `SETRWC CLR_B`
+(`:239`). `SETRWC.md` is where `FlipSrcA/FlipSrcB` returns the bank:
+`AllowedClient = Unpackers; MatrixUnit.SrcABank ^= 1`.
+
+If software does need the wait explicitly — the instructions that read Src but do
+*not* auto-wait are `MOVD2A`/`MOVD2B`, which write Src banks from Dst — it is
+`TTI_STALLWAIT(p_stall::STALL_MATH, p_stall::MATH | p_stall::SRCA_VLD)`
+(`cmath_common.h:146`). This kernel never needs it: its three math-side
+`STALLWAIT`s are `0xa2400810` (`STALL_CFG, MATH|SFPU1`, `:42` and `:255`) and
+`0xa2010810` (`STALL_SYNC, MATH|SFPU1`, `:246`).
+
+**Consequence for reading the stream (or a timing model).** A search for "the
+instruction that waits for SrcA" finds nothing, because there is none, and the
+release is one bit of an instruction the *unpack* thread pushes. Attribution has
+to be: `UNPACR` push (unpack thread) → `AllowedClient` flip (Tensix backend) →
+first expanded `MVMUL` stalls at the Wait Gate (math thread). A `.ttinsn` census
+sees none of the three.
 
 ## The packer never pushes a PACR
 
@@ -175,6 +231,33 @@ per K step, not the 64 MVMULs or the two bank releases it produces.
 therefore no `0x41` word anywhere in the `.ttinsn` text of `mm_trisc2_pack.S`.
 Same reason `ZEROACC` appears as a plain `sw` (`TT_ZEROACC`, `:327`): its
 `where` operand is the runtime `dest_offset_id`.
+
+## Two ways a Tensix instruction reaches the backend
+
+`ckernel_ops.h:7-8` defines both encoders, and the generated asm uses both:
+
+```c
+#define TTI_INSN(ENCODING) __asm__ __volatile__(".ttinsn %0" : : "n"((ENCODING)))
+#define TT_INSN(ENCODING)  (::ckernel::instrn_buffer[0] = (ENCODING))
+```
+
+`.ttinsn` is an inline Tensix word in the RISC-V instruction stream (the core
+decodes it and forwards it instead of executing it), and it needs a *compile-time*
+encoding. `TT_INSN` stores the word into the **instruction-buffer aperture** —
+`PROVIDE(__instrn_buffer = 0xFFE40000)` in `toolchain/main.ld:414`, per-thread
+oxide `INSTRN_BUF_STRIDE 0x10000` (`tensix.h:56-58`) — which is the path for
+runtime-computed words.
+
+That is why `mm_trisc0_unpack.S:46-48` sets `a0 = &__instrn_buffer` and then issues
+its MOP with a plain store: `sw s9,0(a0)` at `:286` with `s9 = 0x01000000`
+(`MOP(0,0,0)`, the context-0 half) and `sw s8,0(a0)` at `:369` with
+`s8 = 0x010000ff` (`MOP(0,0,0xff)`, the context-1 half) — matching
+`TT_MOP(0, count-1, unp_cfg_context ? 0xff : 0x00)`. The same path carries
+`SETDMAREG`/`STOREREG` (opcodes `0x45`/`0x67`, `sw a5`/`s5`/`s1,0(a0)` at
+`:305`/`:311`/`:329`), whose payload is the *runtime* CB index, and `ZEROACC`
+above. Rule of thumb: literal opcode and operands → `.ttinsn`; runtime operand, or
+any op the LLK authored as `TT_*` rather than `TTI_*` → `sw` into the aperture. A
+grep for `.ttinsn` therefore under-counts the instructions the backend sees.
 
 ## Auto TTSync is not what makes these waits unnecessary
 
