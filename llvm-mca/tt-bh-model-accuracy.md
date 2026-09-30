@@ -43,7 +43,15 @@ each after the first, so `n` adjacent fences are over-predicted by `5*(n-1)`.
    cycles for local data RAM or an L0 hit up to >= 12 for an L1 atomic; the model
    cannot tell `lw a5,0(sp)` from an `lw` of a NoC-overlay register. This is the
    single largest source of error and it is not fixable in the model format. Use
-   `# LLVM-MCA-LATENCY <n>`, which the model's comments point at.
+   `# LLVM-MCA-LATENCY <n>`, which the model's comments point at. A library
+   driver can do better than the comment directive: attach a `LatencyInstrument`
+   per dynamic instruction at *feed* time, which sets `Desc.MaxLatency` for that
+   instance with no LLVM patch. Since a dynamic-trace driver knows the address
+   when it feeds the instruction, this closes this gap for L0/L1/local-RAM
+   discrimination. See
+   [`streaming-api-and-extension-surface.md`](streaming-api-and-extension-surface.md#per-instance-latency-from-an-external-function-is-expressible).
+   Note the cost: instrumented instructions can never be recycled, so instrument
+   only the loads whose latency actually varies.
 2. **Divide latency is operand-dependent** (documented 6..33) and the format cannot
    say so; the model picks 20. Budget +/- 13 cycles per divide.
 3. **`fence` is flat 9.** See above.

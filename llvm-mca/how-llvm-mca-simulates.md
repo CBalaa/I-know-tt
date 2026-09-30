@@ -38,6 +38,42 @@ return Cycles;
    `moveToTheNextStage()`.
 3. `cycleEnd()` on every stage, **in forward order**.
 
+## Where each number in the report comes from
+
+The report mixes two *different kinds* of number, and conflating them is the most
+common way to misread `llvm-mca` output.
+
+**Simulated — a literal loop trip count.** `Pipeline::run()` returns `Cycles`,
+the number of times the loop above executed before `hasWorkToComplete()` went
+false, i.e. until `RetireStage`'s control unit drained
+(`Stages/RetireStage.h:41`, `return !RCU.isEmpty();`). That value is `Total
+Cycles` in the summary and it is what `-timeline` draws. It is not an estimate.
+
+**Computed statically from the table, never simulated.** `Block RThroughput`
+never touches the simulation. `SummaryView::onEvent` accumulates, per retired
+instruction, `Desc.NumMicroOps` and `Desc.Resources` — both straight out of
+TableGen — and `collectData()` then calls `computeBlockRThroughput()`
+(`lib/MCA/Support.cpp:84`):
+
+```cpp
+double Max = (double)NumMicroOps / DispatchWidth;
+for each proc resource R used:
+  Max = std::max(Max, (double)ProcResourceUsage[R] / R.NumUnits);
+return Max;   // max(uOps/dispatch width, per-resource occupancy)
+```
+
+So `Block RThroughput` is a **bounds calculation over the static schedule
+table**. It contains no dependency chains at all: it answers "if dependencies
+were free, what does port/issue pressure alone imply?" — right for a
+throughput-bound loop, wrong for a latency-bound one.
+
+**Averaged over 100 repetitions.** The pipeline is not handed the block once:
+`CircularSourceMgr` (`include/llvm/MCA/SourceMgr.h:59`) replays it `-iterations`
+times, default `DefaultIterations = 100`. `Total Cycles` therefore covers one
+pipeline fill + 100 blocks + one drain, and `IPC = TotalInstructions /
+TotalCycles` is a steady-state average in which the fixed ends are amortised to
+nothing. Lower `-iterations` and the ends start to matter.
+
 ## What one cycle of an in-order core actually does
 
 `InOrderIssueStage::cycleStart()` (`lib/MCA/Stages/InOrderIssueStage.cpp:397`) —

@@ -237,8 +237,35 @@ Use a fixed, documented per-cycle order so equal-cycle events are reproducible:
 5. Retire scalar instructions and publish CB/backend events scheduled for the
    next cycle.
 
-The arbitration policy for simultaneous UNPACK/MATH/PACK/configuration use must
-be a configuration knob until an isolated hardware measurement fixes it.
+### Cross-thread arbitration does not exist to be modelled
+
+Do **not** plan a cross-thread arbiter as a free knob. The ISA documents no
+hardware arbiter that serializes backend units between threads. What it does
+document (`WormholeB0/TensixTile/TensixCoprocessor/README.md`) is:
+
+* The Matrix Unit "can only start executing one instruction per cycle,
+  regardless of how many threads are trying to use it." That is an issue rate —
+  a hardware constant, not a policy.
+* The rest is a **software contract, not arbitration**: "The majority of backend
+  state exists just once... this is the case for `Dst` and for `LReg`; software
+  needs to carefully manage concurrent access to these memories, as otherwise
+  threads can overwrite each other's data." For `SrcA`/`SrcB` the README is
+  explicit — software manages the copy flip "along with ensuring that each
+  relevant backend execution unit is only in use by one thread at a time."
+
+Violating that contract produces **data corruption, not a delay**, so there is
+no timing curve a knob could fit. Model it as a checked precondition
+(scoreboard violation reported as an error), and keep only two genuine
+calibration parameters: the Matrix Unit's 1-instruction-per-cycle start rate and
+per-unit startup / steady-state periods.
+
+This also settles what MCA may own. The three threads reach the backend through
+**three independent frontends** and the RISCs run "completely asynchronously" to
+the coprocessor, so the connection is not three cores contending for one
+resource — it is three push/FIFO streams feeding a shared asynchronous backend.
+MCA has no representation for that shape at any layer; see
+[`streaming-api-and-extension-surface.md`](streaming-api-and-extension-surface.md)
+("Sharing a backend across pipelines") for the exact blockers.
 
 ## LLVM implementation plan
 
@@ -246,10 +273,25 @@ be a configuration knob until an isolated hardware measurement fixes it.
    labels, evaluate RV32 values, and emit a dynamic trace with typed push,
    MMIO, CB, TTSync, and backend annotations. Add a decoder generated from
    Blackhole `assembly.yaml`.
-2. **Persistent scalar MCA.** Add a streaming source/step API to LLVM-MCA (or
-   embed `InstrBuilder`, `InOrderIssueStage`, and the `tt-bh` `MCSchedModel`)
-   so the scalar pipeline is not reset at each event. Keep address-dependent
-   load readiness and the Baby-RISC retire/store queues in this layer.
+2. **Persistent scalar MCA.** ~~Add a streaming source/step API to LLVM-MCA~~
+   **Correction: the streaming source already exists upstream.**
+   `llvm/include/llvm/MCA/IncrementalSourceMgr.h` is documented as a `SourceMgr`
+   that adds instructions incrementally, and `EntryStage::getNextInstruction()`
+   returns `InstStreamPause` when the stream is open but empty
+   (`Stages/EntryStage.cpp:33-35`); `Pipeline::runCycle()` turns that into
+   `State::Paused` (`Pipeline.cpp:71-74`) with every stage, the PRF, the
+   `ResourceManager` and the `LSUnit` left alive.  Upstream's own test is
+   `llvm/unittests/tools/llvm-mca/X86/TestIncrementalMCA.cpp`.  What is actually
+   missing is only: a public `runCycle()`/`step()` and a `getCycles()` accessor
+   (`Pipeline.h:65,67` are private) -- a ~10-line patch.  A driver can also
+   assemble its own pipeline out of tree, since `EntryStage`,
+   `InOrderIssueStage`, `RegisterFile`, `LSUnit` and `Pipeline::appendStage` are
+   all public; that is where a custom `LSUnitBase` or `CustomBehaviour` goes.
+   External stalls need no patch at all: `CustomBehaviour::checkCustomHazard`
+   has exactly one call site (`Stages/InOrderIssueStage.cpp:136`) and returning
+   1 re-probes every cycle, i.e. block-until-external-event.  Keep
+   address-dependent load readiness and the Baby-RISC retire/store queues in
+   this layer.
 3. **Frontend model.** Implement static `.ttinsn`, dynamic instruction-buffer
    stores, FIFO thresholds, gathering, MOP_CFG, MOP, and Replay.
 4. **Tensix state model.** Implement Wait Gate, Sync/semaphore handoff,
