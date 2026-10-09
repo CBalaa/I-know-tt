@@ -51,20 +51,24 @@ completion and external CB waits; they are scalar baselines.
 
 A separate CB probe supplied 16 observed CB0 and CB1 visibility events and 16
 observed CB16 credit-release events (the predictor adds the two initial CB16
-free slots).  After correcting the probe overhead with
-the NCRISC/BRISC kernel endpoints, the extrapolated periods were 1,137,
+free slots).  **Correction (2026-10-06):** the NCRISC/BRISC endpoints used to
+extrapolate the trace came from the *same instrumented run*. They did not
+correct probe overhead. The endpoint-derived periods were 1,137,
 1,137, and 22,736 cycles.  Feeding that fixed event trace to the persistent
 Baby-RISC timing layer produced 9,097,795, 9,216,000, and 9,050,916 cycles.
-Against the assembly-only windows, the errors were 0.51%, 1.91%, and 0.24%.
+Against the assembly-only windows, the displayed differences were 0.51%,
+1.91%, and 0.24%; these are trace-conditioned comparisons, not independent
+forward-prediction errors.
 The 9,216,000 value uses a provisional 18-cycle MVMUL issue period; it is a
 calibration input, not a documented MVMUL latency.
 
 The result must be reported in layers.  For the same measured event trace,
 plain dynamic-trace MCA produced 3,745,529 (TRISC0), 29,751 (TRISC1), and
 4,120,302 (TRISC2) scalar cycles.  MCA cannot see a future CB visibility event
-or Tensix backend completion.  The sub-2% figures therefore validate the
-hybrid event-aware scalar layer plus the fixed backend envelope, not an
-unmodified LLVM-MCA-only prediction of a complete TRISC kernel.
+or Tensix backend completion. The sub-2% figures therefore show agreement
+after injecting an endpoint-derived event timeline, not validation of scalar,
+NoC, or backend timing accuracy. The matched probe-overhead experiment is in
+[`matmul-cb-probe-overhead-and-endpoint-leakage.md`](../tt-metal/matmul-cb-probe-overhead-and-endpoint-leakage.md).
 
 The next model layers must preserve the event boundaries documented in
 `trisc-matmul-single-core-model.md`: scalar store issue, FIFO acceptance,
@@ -91,8 +95,9 @@ CB1 events produce roughly 46 and 61 poll iterations per event respectively.
 TRISC0's 9,097,795 cycles divided by its 8,000 CB0 pushes is 1,137.2 cycles per
 event, which is the extrapolated CB0/CB1 push period itself.  The unpack thread
 is therefore not scheduled by its own code at all: it is paced one-to-one by the
-reader's push rate, and the predictor's accuracy on this thread comes from
-transcribing the measured producer period into the poll branch, not from the
+reader's push rate, and the predictor's apparent accuracy on this thread comes
+from transcribing the instrumented endpoint-derived producer period into the
+poll branch, not from the
 scalar schedule.
 
 The corollary is that `MCA + backend` is the wrong shape for TRISC0 and TRISC2.

@@ -74,6 +74,7 @@ otherwise. Measured vs assumed is marked inside each note.
 | --- | --- |
 | [`device-profiler-zone-budget.md`](tt-metal/device-profiler-zone-budget.md) | Why only 125 zones per RISC per kernel run, why the overflow is **silent**, and what does *not* lift the budget |
 | [`measuring-device-instrumentation-cost.md`](tt-metal/measuring-device-instrumentation-cost.md) | What a marker actually costs, and why the recorded window and the marginal cost are different numbers (three independent measurement methods) |
+| [`device-profiler-marker-calibration.md`](tt-metal/device-profiler-marker-calibration.md) | Exact Blackhole calibration for the current `DeviceZoneScopedN` binary, including helper-shaped cost and operation-boundary-to-`ZONE_END` offsets |
 | [`wall-clock-registers-and-latch.md`](tt-metal/wall-clock-registers-and-latch.md) | The three wall-clock MMIO addresses, the latch, the fact that it is **per-tile shared**, and why the profiler reads `0x1F4` |
 | [`out-of-tree-program-cmake-and-runtime-root.md`](tt-metal/out-of-tree-program-cmake-and-runtime-root.md) | Building and running a standalone program against an existing build tree: `TT-Metalium_DIR`, `TT_METAL_RUNTIME_ROOT`, `OVERRIDE_KERNEL_PREFIX`, kernel paths, and the compile flags host sources from `programming_examples/` expect |
 | [`runtime-tree-missing-profiler-headers.md`](tt-metal/runtime-tree-missing-profiler-headers.md) | Why a **profiler** run's `TT_METAL_RUNTIME_ROOT` must point at the **source** tree, not `build_Release/libexec/...` (plain runs work with either) |
@@ -82,6 +83,9 @@ otherwise. Measured vs assumed is marked inside each note.
 | [`launching-asm-kernels.md`](tt-metal/launching-asm-kernels.md) | Running a hand-written `.S` as a tt-metal kernel via `CreateKernelFromString` + inline-asm `.include`; where the kernel source is spliced in, and the four things that break (LTO dropping asm-referenced globals, LLK per-TU `static` state, `R_RISCV_32`-into-text rejected at load, `.L<n>` label collisions); plus why editing a `.S` does **not** invalidate the JIT cache, and why `DPRINT` never survives into a spliced `.S` by default |
 | [`blackhole-instruction-gathering.md`](tt-metal/blackhole-instruction-gathering.md) | Why tt-metal disables four-way TRISC `.ttinsn` gathering by default, the opt-in build flag, and p150a warm-I-cache measurements |
 | [`cb-visibility-profiler-probe.md`](tt-metal/cb-visibility-profiler-probe.md) | How the standalone matmul CB probe records reader push and writer pop visibility events and converts them to predictor input |
+| [`matmul-cb-probe-overhead-and-endpoint-leakage.md`](tt-metal/matmul-cb-probe-overhead-and-endpoint-leakage.md) | Matched 0/16-zone hardware comparison and why endpoint-assisted CB replay cannot validate forward prediction |
+| [`trisc-unpack-context-ping-pong-and-cfg-state.md`](tt-metal/trisc-unpack-context-ping-pong-and-cfg-state.md) | TRISC unpack/pack dual-context ping-pong (`unp_cfg_context`) FSM in assembly, configuration state branching (`cfg_state_id`), and expected cost simulation |
+| [`matmul-unpacker-spin-wait-sites.md`](tt-metal/matmul-unpacker-spin-wait-sites.md) | Where the matmul TRISC0 unpacker polls, how to record wait exits, and measured trace perturbation |
 
 ### `tt-npe/`
 

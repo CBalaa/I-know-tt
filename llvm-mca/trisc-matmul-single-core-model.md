@@ -336,3 +336,60 @@ Sources: [Blackhole Baby-RISC README](../tt-isa-documentation/BlackholeA0/Tensix
 [Dst](../tt-isa-documentation/BlackholeA0/TensixTile/TensixCoprocessor/Dst.md),
 [Sync Unit](../tt-isa-documentation/BlackholeA0/TensixTile/TensixCoprocessor/SyncUnit.md),
 and the generated files under `example/standalone/matmul_single_core/asm_kernel/`.
+
+## Current modular driver: a measured-trace replay, not a forward cycle prediction
+
+**Finding (source-read and reproduced diagnostic; 2026-10-06).** With tt-metal
+`4f9fa9e0` and the checked-in Blackhole p150a `matmul_single_core` trace, the
+current `predict.py` result of 9,097,754 cycles is conditioned on 8,000 CB0 and
+8,000 CB1 timestamps in `cb_events_measured.json`. Only the first 16 of each
+input stream were sampled; the rest were extrapolated at 1,137 cycles/tile from
+the profiled NCRISC endpoint. The final CB1 timestamp is 9,097,692, just 62
+cycles before the predicted exit. The measured comparison is 9,051,869 cycles,
+giving +0.51% for this **trace-conditioned** run, not for an independent NoC
+plus backend forecast.
+
+Holding the JSON timestamps fixed and changing only each `run_llvm_mca` result
+produced the following reproduced, source-level sensitivity check (no device
+run and no source edits):
+
+| MCA cycles multiplier | All-ready scalar baseline | Trace-conditioned total |
+| ---: | ---: | ---: |
+| 0.5 | 204,109 | 9,097,723 |
+| 1.0 | 408,218 | 9,097,754 |
+| 2.0 | 816,436 | 9,097,816 |
+
+Thus even a twofold scalar-timing error changes the displayed full-kernel result
+by only 62 cycles: more or less scalar work is absorbed by the injected waits.
+The +0.51% comparison does not validate scalar-cycle accuracy. The former claim
+that 96.2% of the 45,885-cycle difference *is* the 1,137-vs-1,131.48 period
+error is an explanatory arithmetic fit, not an independently identified error
+source; 1,131.48 comes from the measured full-kernel time.
+
+A later matched hardware control (same compute assembly, eight alternating
+zero-zone/sixteen-zone pairs) measured +15,719 TRISC0 cycles on average when
+the CB probe was present, or 0.172%. The original instrumented NCRISC endpoint
+was already at 9,095,988 relative cycles, only 1,766 before the old predicted
+exit; the old period-rounding drift was approximately 548 cycles. The matched
+measurement and the endpoint-leakage calculation are kept separately in
+[`matmul-cb-probe-overhead-and-endpoint-leakage.md`](../tt-metal/matmul-cb-probe-overhead-and-endpoint-leakage.md).
+
+**Current implementation gaps (source-read, not device-calibrated):**
+`ttloop/engine/events.py` treats UNPACK_IDLE and UNPACK_SPACE as immediately
+ready; `ttloop/engine/scalar_engine.py` counts `.ttinsn` backend words but does
+not schedule their FIFO, expander, Wait Gate or backend timing. Each basic block
+is run through a fresh `llvm-mca -iterations=1`; summing drained block latencies
+does not preserve pipeline state. The compiled loop path collects all wait sites
+before adding the iteration's scalar blocks, which can move a wait earlier than
+its real position. These are model-boundary and control-flow issues, not marker
+noise. This finding does not say a global cycle-level simulator is impossible;
+it says the present trace replay cannot establish that accuracy claim.
+
+The current frontend also omits the per-tile `lw`/`bne` at the
+`unp_cfg_context` branch (BB13), about 16,000 executed scalar instructions in
+this 8,000-iteration case, and omits four outer-loop control blocks. Conversely,
+it includes BB15's `.ttinsn` on both ping-pong arms even though the context-1
+arm jumps around BB15, overcounting that backend word 4,000 times. This is
+visible by comparing `ttloop/frontend/analyzer.py`'s linearized inner-loop IR
+with `mm_trisc0_unpack.S` at `.Lmm_trisc0_unpack_101` and
+`.Lmm_trisc0_unpack_82`.
